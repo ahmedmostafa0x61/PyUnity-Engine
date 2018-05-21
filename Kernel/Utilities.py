@@ -9,15 +9,16 @@
     -- Author : AbdElAziz Mofath
     -- Date: 4th of April 2018 at 7:40 PM
 """
-import os
 import math
 import pygame
-import random
 from OpenGL.GL import *
-from Kernel import Time, CollisionDetector
-from UserAssets import Drawings
+from OpenGL.GLUT import *
+from random import randint
+from Kernel import Time, Physics
+from UserAssets import Drawings, Sfx
+from Kernel.DataBase import get_variable, set_variable, __SaveDataBase
 from Kernel.EventManager import __EnableScript, __DisableScript, __DestroyScript,\
-    __SendMeggage, __InstantiateScript, __GetScript
+    __SendMeggage, __InstantiateScript, __GetScript, __CastEvent
 
 
 class Vector3:
@@ -120,18 +121,53 @@ class Vector3:
                          self.x * vec.y - self.y * vec.x)
         return newVec
 
+    def dot(self, vec):
+        """
+        the dot product of multiplying the current vector by vector vec
+        * Doesnt affect the current vector values.
+
+        :param vec: vector b in the notation dot = a . b
+        :return: Vector3
+        """
+        val = self.x * vec.x + self.y * vec.y + self.z * vec.z
+        return val
+
     def magnitude(self, ):
         """
-        The length of the vector.
-
         :return: float: the length of the vector
         """
         length = math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
         return length
 
+    def squareMagnitude(self, ):
+        """
+        :return: float: the Squared length of the vector
+        """
+        length = self.x * self.x + self.y * self.y + self.z * self.z
+        return length
+
+    @staticmethod
+    def ones(scale=1):
+        return Vector3(scale, scale, scale)
+
+    @staticmethod
+    def zeros():
+        return Vector3(0, 0, 0)
+
     @staticmethod
     def lerp(vec_a, vec_b, t):
         return vec_a + (vec_b - vec_a) * t
+
+    @staticmethod
+    def clap_magnitude(vec, min_length, max_length):
+        square_length = vec.squareMagnitude()
+        if square_length > max_length * max_length:
+            return vec.normalized() * max_length
+
+        if square_length < min_length * min_length:
+            return vec.normalized() * min_length
+
+        return vec
 
 
 class Transform2D:
@@ -206,67 +242,71 @@ class Transform2D:
 
 
 class SpriteRenderer:
-    def __init__(self, sprite_name):
+    def __init__(self, sprite_name, smooth=True):
         """
         :param sprite_name: the name of the sprite
         """
         drawings_path = os.path.dirname(Drawings.__file__)
-        self.sprite_path = drawings_path + '\\' + sprite_name
+        sprite_path = drawings_path + '\\' + sprite_name
 
-        self.sprite = pygame.image.load(self.sprite_path)
-        self.sprite_width = self.sprite.get_width()
-        self.sprite_height = self.sprite.get_height()
+        self._sprite = pygame.image.load(sprite_path)
+        self._sprite_width = self._sprite.get_width()
+        self._sprite_height = self._sprite.get_height()
 
-        self.sprite_data = pygame.image.tostring(self.sprite, "RGBA", 1)
-        self.sprite_text_id = glGenTextures(1)
+        self._sprite_data = pygame.image.tostring(self._sprite, "RGBA", 1)
+        self._sprite_text_id = glGenTextures(1)
 
-        glBindTexture(GL_TEXTURE_2D, self.sprite_text_id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.sprite_width, self.sprite_height, 0,
-                     GL_RGBA, GL_UNSIGNED_BYTE, self.sprite_data)
+        glBindTexture(GL_TEXTURE_2D, self._sprite_text_id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR if smooth else GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR if smooth else GL_NEAREST)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self._sprite_width, self._sprite_height, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, self._sprite_data)
 
-        del self.sprite
+        del self._sprite, self._sprite_data
 
     def __del__(self):
-        glDeleteTextures(1, self.sprite_text_id)
+        glDeleteTextures(1, self._sprite_text_id)
 
+    @property
     def size(self):
-        return self.sprite_width / 100, self.sprite_height / 100
+        """
+        :return: the width and the height of the sprite
+        """
+        return self._sprite_width / 100, self._sprite_height / 100
 
-    def render(self, x=0, y=0, mul=1, brightness=1, color=Vector3(1, 1, 1)):
-
+    def render(self, mul=1, brightness=1, color=Vector3(1, 1, 1)):
         """
             render the sprite at the origin.
         """
 
         glEnable(GL_TEXTURE_2D)
 
-        glBindTexture(GL_TEXTURE_2D, self.sprite_text_id)
+        glBindTexture(GL_TEXTURE_2D, self._sprite_text_id)
 
-        rx = self.sprite_width / 100
-        ry = self.sprite_height / 100
+        rx = self._sprite_width / 100
+        ry = self._sprite_height / 100
 
         glColor3f(color.x * brightness, color.y * brightness, color.z * brightness)
 
         glBegin(GL_QUADS)
         glTexCoord2f(0, 0)
-        glVertex3f(x - 1 * rx, y - 1 * ry, 0)
+        glVertex3f(-rx, -ry, 0)
 
         glTexCoord2f(0, mul)
-        glVertex3f(x - 1 * rx, y + 1 * ry, 0)
+        glVertex3f(-rx, +ry, 0)
 
         glTexCoord2f(mul, mul)
-        glVertex3f(x + 1 * rx, y + 1 * ry, 0)
+        glVertex3f(+rx, +ry, 0)
 
         glTexCoord2f(mul, 0)
-        glVertex3f(x + 1 * rx, y - 1 * ry, 0)
+        glVertex3f(+rx, -ry, 0)
         glEnd()
 
         glDisable(GL_TEXTURE_2D)
 
 
 class Animation:
-    def __init__(self, sprite_name, size, speed):
+    def __init__(self, sprite_name, size, speed, smooth=True):
         """
         :param sprite_name: the name of the sprite
         """
@@ -283,9 +323,12 @@ class Animation:
         self.sprite_text_id = glGenTextures(1)
 
         glBindTexture(GL_TEXTURE_2D, self.sprite_text_id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR if smooth else GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR if smooth else GL_NEAREST)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.sprite_width, self.sprite_height, 0,
                      GL_RGBA, GL_UNSIGNED_BYTE, self.sprite_data)
+
+        del self.sprite, self.sprite_data
 
     def __frame_bounds(self, animate):
         step = 1 / self.size
@@ -300,7 +343,7 @@ class Animation:
 
         return 0, step
 
-    def render(self, animate=True, brightness=1):
+    def render(self, animate=True, brightness=1, color=Vector3(1, 1, 1)):
 
         """
             render the sprite at the origin.
@@ -314,7 +357,7 @@ class Animation:
         ry = self.sprite_height / 100
         tx, ty = self.__frame_bounds(animate)
 
-        glColor3f(1 * brightness, 1 * brightness, 1 * brightness)
+        glColor3f(color.x * brightness, color.y * brightness, color.z * brightness)
 
         glBegin(GL_QUADS)
         glTexCoord2f(tx, 0)
@@ -333,14 +376,116 @@ class Animation:
         glDisable(GL_TEXTURE_2D)
 
 
-class RectCollider:
-    def __init__(self, script_id, transform, rectangle, message):
-        self.script_id = script_id
-        self.transform = transform
-        self.rectangle = rectangle
-        self.message = message
+class PlainText:
+    def __init__(self, text, line_width=1):
+        self.text = text
+        self.line_width = line_width
 
-        CollisionDetector.addRect(self)
+    def render(self, color=Vector3.zeros()):
+        glScale(0.001, 0.001, 0.001)
+        glLineWidth(self.line_width)
+        glColor3f(color.x, color.y, color.z)
+
+        for c in self.text.encode():
+            glutStrokeCharacter(GLUT_STROKE_ROMAN, c)
+
+
+class SFX:
+    pygame.mixer.init(buffer=128)
+    pygame.mixer.set_num_channels(128)
+
+    def __init__(self, sound):
+        sfx_path = os.path.dirname(Sfx.__file__)
+        sound_path = sfx_path + '\\' + sound
+        self.sound = pygame.mixer.Sound(sound_path)
+
+    def play(self):
+        self.sound.play()
+
+    def stop(self):
+        self.sound.stop()
+
+
+class Music:
+    def __init__(self, music):
+        sfx_path = os.path.dirname(Sfx.__file__)
+        music_path = sfx_path + '\\' + music
+        pygame.mixer.music.load(music_path)
+        pygame.mixer.music.set_volume(.5)
+
+    @staticmethod
+    def play(r=0):
+        pygame.mixer.music.play(r)
+
+    @staticmethod
+    def stop():
+        pygame.mixer.music.stop()
+
+
+class BoxCollider2D:
+    def __init__(self, width, height, transform, collider_id, collider_tag='box'):
+        self.width = width
+        self.height = height
+        self.transform = transform
+        self.collider_id = collider_id
+        self.collider_tag = collider_tag
+
+        self.method = None
+        Physics.addBox(self)
+
+    def render(self):
+        x = (self.width / 2)+self.transform.scale.x
+        y = (self.height / 2)+self.transform.scale.y
+
+        glScale(1 / self.transform.scale.x,
+                1 / self.transform.scale.y,
+                1 / self.transform.scale.z)
+
+        glColor3f(1, 1, 1)
+        glLineWidth(1)
+
+        glBegin(GL_LINE_LOOP)
+        glVertex3f(-x, -y, 0)
+        glVertex3f(-x, +y, 0)
+        glVertex3f(+x, +y, 0)
+        glVertex3f(+x, -y, 0)
+        glEnd()
+
+    def on_collision_trigger(self, method):
+        self.method = method
+
+    def trigger_hit_event(self, hit_id, hit_tag):
+        if self.method is not None:
+            self.method(hit_id, hit_tag)
+
+    def start_pos_x(self):
+        return self.transform.position.x - (self.width / 2)
+
+    def start_pos_y(self):
+        return self.transform.position.y - (self.height / 2)
+
+    def end_pos_x(self):
+        return self.transform.position.x + (self.width / 2)
+
+    def end_pos_y(self):
+        return self.transform.position.y + (self.height / 2)
+
+    def is_collision(self, box):
+        x1 = self.start_pos_x() > box.end_pos_x()
+        x2 = self.end_pos_x() < box.start_pos_x()
+
+        y1 = self.start_pos_y() > box.end_pos_y()
+        y2 = self.end_pos_y() < box.start_pos_y()
+
+        return not (x1 or x2 or y1 or y2)
+
+
+def save_data_base():
+    __SaveDataBase()
+
+
+def castEvent(event_name, *args):
+    __CastEvent(event_name, *args)
 
 
 def send_message(script_id, method, *args):
@@ -365,3 +510,13 @@ def instantiate_script(script_name):
 
 def get_script(script_id):
     return __GetScript(script_id)
+
+
+def lerp(vec_a, vec_b, t):
+    return vec_a + (vec_b - vec_a) * t
+
+
+def random_point_on_unit_circle():
+    a = math.radians(randint(0, 359))
+    x, y = math.cos(a), math.sin(a)
+    return Vector3(x, y, 0)

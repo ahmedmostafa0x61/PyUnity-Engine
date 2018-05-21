@@ -4,11 +4,10 @@
     -- Author : AbdElAziz Mofath
     -- Date: 4th of April 2018 at 7:00 PM
 """
-
 import pygame
 from OpenGL.GL import *
 from OpenGL.GLUT import *
-from Kernel import Time, Input, Camera, EventManager
+from Kernel import Time, Input, Camera, EventManager, Physics, DataBase
 
 
 def start():
@@ -16,9 +15,14 @@ def start():
         Start the engine hence the game.
     """
     __init()
+    DataBase.__LoadDataBase()
     EventManager.loadScripts()
     EventManager.castStart()
     glutMainLoop()
+
+
+def close_engine():
+    DataBase.__SaveDataBase()
 
 
 def __init():
@@ -28,7 +32,7 @@ def __init():
     glutInit()
     pygame.init()
     glutInitWindowSize(800, 600)
-    glutCreateWindow(b'Game Engine')
+    glutCreateWindow(b'Zombie Hunter')
     glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_WINDOW_DOUBLEBUFFER)
 
     glEnable(GL_BLEND)
@@ -44,23 +48,24 @@ def __init():
 
     glutDisplayFunc(__GameLoopManager)
     glutIdleFunc(__GameLoopManager)
+    glutWMCloseFunc(close_engine)
 
 
 def __GameLoopManager():
     """
         The main loop in which everything take place in order.
     """
+    EventManager.updateDictionary()
     Time.__UpdateDeltaTime()
 
     __FrameUpdate()
+    __LateFrameUpdate()
     __RenderUpdate()
 
-    __InputUpdate()
     __PhysicsUpdate()
-    __LateFrameUpdate()
+    __InputUpdate()
 
     EventManager.collectGarbage()
-    EventManager.updateDictionary()
     Time.__SleepTimeToLockFramsOn(60)
 
 
@@ -91,7 +96,7 @@ def __RenderUpdate():
 
 
 def __PhysicsUpdate():
-    pass
+    Physics.__PhysicsUpdate()
 
 
 def __LateFrameUpdate():

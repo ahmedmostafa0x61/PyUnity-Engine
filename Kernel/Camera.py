@@ -11,11 +11,11 @@
     -- Author : AbdElAziz Mofath
     -- Date: 4th of April 2018 at 8:10 PM
 """
-
+from OpenGL.GLUT import glutFullScreen, glutReshapeWindow
 from OpenGL.GL import glTranslate, glRotatef
 from Kernel.Utilities import Vector3
 
-__swr, __shr = 0, 0
+__swr, __shr, __full = 0, 0, False
 size, near, far = 5, 0.1, 100.
 
 clearColor = Vector3(1, 1, 1)
@@ -45,3 +45,14 @@ def screenToWorld(vec):
     global position, __swr, __shr
     x, y = vec.x * __swr * size, vec.y * __shr * size
     return Vector3(position.x + x, position.y + y, 0)
+
+
+def screen_mode(mode='window'):
+    """
+        Set the screen display mode from ['window', 'full_screen']
+    :param mode: string
+    """
+    if mode == 'window':
+        glutReshapeWindow(800, 600)
+    elif mode == 'full_screen':
+        glutFullScreen()
